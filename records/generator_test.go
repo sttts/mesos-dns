@@ -10,6 +10,7 @@ import (
 	"github.com/mesosphere/mesos-dns/logging"
 	"github.com/mesosphere/mesos-dns/records/labels"
 	"github.com/mesosphere/mesos-dns/records/state"
+	"github.com/mesosphere/mesos-dns/records/tmpl"
 )
 
 func init() {
@@ -157,7 +158,7 @@ func TestLeaderIP(t *testing.T) {
 	}
 }
 
-func testRecordGenerator(t *testing.T, spec labels.Func, ipSources []string) RecordGenerator {
+func testRecordGenerator(t *testing.T, spec labels.Func, ipSources []string, ts []tmpl.Template) RecordGenerator {
 	var sj state.State
 
 	b, err := ioutil.ReadFile("../factories/fake.json")
@@ -171,7 +172,7 @@ func testRecordGenerator(t *testing.T, spec labels.Func, ipSources []string) Rec
 	masters := []string{"144.76.157.37:5050"}
 
 	var rg RecordGenerator
-	if err := rg.InsertState(sj, "mesos", "mesos-dns.mesos.", "127.0.0.1", masters, ipSources, spec); err != nil {
+	if err := rg.InsertState(sj, "mesos", "mesos-dns.mesos.", "127.0.0.1", masters, ipSources, ts, spec); err != nil {
 		t.Fatal(err)
 	}
 
@@ -180,10 +181,15 @@ func testRecordGenerator(t *testing.T, spec labels.Func, ipSources []string) Rec
 
 // ensure we are parsing what we think we are
 func TestInsertState(t *testing.T) {
-	rg := testRecordGenerator(t, labels.RFC952, []string{"docker", "mesos", "host"})
-	rgDocker := testRecordGenerator(t, labels.RFC952, []string{"docker", "host"})
-	rgMesos := testRecordGenerator(t, labels.RFC952, []string{"mesos", "host"})
-	rgSlave := testRecordGenerator(t, labels.RFC952, []string{"host"})
+	rg := testRecordGenerator(t, labels.RFC952, []string{"docker", "mesos", "host"}, tmpl.DefaultTemplates())
+	rgDocker := testRecordGenerator(t, labels.RFC952, []string{"docker", "host"}, tmpl.DefaultTemplates())
+	rgMesos := testRecordGenerator(t, labels.RFC952, []string{"mesos", "host"}, tmpl.DefaultTemplates())
+	rgSlave := testRecordGenerator(t, labels.RFC952, []string{"host"}, tmpl.DefaultTemplates())
+	rgTemplates := testRecordGenerator(t, labels.RFC1123, []string{"docker", "mesos", "host"}, []tmpl.Template{
+		"slave-{slave-id-short}.{task-id}.{name}.{framework}",
+		"{version}.{location}.{environment}",
+		"{label:canary}.{name}",
+	})
 
 	for i, tt := range []struct {
 		rrs  rrs
@@ -213,12 +219,12 @@ func TestInsertState(t *testing.T) {
 		{rg.SRVs, "_liquor-store._udp.marathon.mesos.", nil},
 		{rg.SRVs, "_liquor-store.marathon.mesos.", nil},
 		{rg.SRVs, "_car-store._tcp.marathon.mesos.", []string{
-			"car-store-50548-0.marathon.slave.mesos.:31364",
-			"car-store-50548-0.marathon.slave.mesos.:31365",
+			"car-store-50548-0.marathon.mesos.:31364",
+			"car-store-50548-0.marathon.mesos.:31365",
 		}},
 		{rg.SRVs, "_car-store._udp.marathon.mesos.", []string{
-			"car-store-50548-0.marathon.slave.mesos.:31364",
-			"car-store-50548-0.marathon.slave.mesos.:31365",
+			"car-store-50548-0.marathon.mesos.:31364",
+			"car-store-50548-0.marathon.mesos.:31365",
 		}},
 		{rg.SRVs, "_slave._tcp.mesos.", []string{"slave.mesos.:5051"}},
 		{rg.SRVs, "_framework._tcp.marathon.mesos.", []string{"marathon.mesos.:25501"}},
@@ -237,6 +243,19 @@ func TestInsertState(t *testing.T) {
 		{rgDocker.As, "liquor-store.marathon.slave.mesos.", []string{"1.2.3.11", "1.2.3.12"}},
 		{rgDocker.As, "nginx.marathon.mesos.", []string{"1.2.3.11"}},
 		{rgDocker.As, "car-store.marathon.slave.mesos.", []string{"1.2.3.11"}},
+
+		{rgTemplates.As, "slave-0.liquor-store.b8db9f73-562f-11e4-a088-c20493233aa5.liquor-store.marathon.mesos.", []string{"10.3.0.1"}},
+		{rgTemplates.As, "slave-0.liquor-store.b8db9f73-562f-11e4-a088-c20493233aa5.liquor-store.marathon.slave.mesos.", []string{"1.2.3.11"}},
+		{rgTemplates.As, "1.0.europe.prod.mesos.", []string{"10.3.0.1", "10.3.0.2"}},
+		{rgTemplates.As, "teneriffa.liquor-store.mesos.", []string{"10.3.0.1"}},
+		{rgTemplates.As, "lanzarote.liquor-store.mesos.", []string{"10.3.0.2"}},
+		{rgTemplates.As, "poseidon.mesos.", nil}, // ensure undefined labels don't lead to squashing
+		{rgTemplates.SRVs, "_liquor-store._tcp.marathon.mesos.", []string{
+			"liquor-store-17700-0.marathon.mesos.:80",
+			"liquor-store-17700-0.marathon.mesos.:443",
+			"liquor-store-7581-1.marathon.mesos.:80",
+			"liquor-store-7581-1.marathon.mesos.:443",
+		}},
 	} {
 		if got := tt.rrs[tt.name]; !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("test #%d: %q: got: %q, want: %q", i, tt.name, got, tt.want)

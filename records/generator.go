@@ -16,6 +16,7 @@ import (
 	"github.com/mesosphere/mesos-dns/logging"
 	"github.com/mesosphere/mesos-dns/records/labels"
 	"github.com/mesosphere/mesos-dns/records/state"
+	"github.com/mesosphere/mesos-dns/records/tmpl"
 )
 
 // Map host/service name to DNS answer
@@ -52,7 +53,7 @@ func (rg *RecordGenerator) ParseState(leader string, c Config) error {
 		hostSpec = labels.RFC952
 	}
 
-	return rg.InsertState(sj, c.Domain, c.SOARname, c.Listener, c.Masters, c.IPSources, hostSpec)
+	return rg.InsertState(sj, c.Domain, c.SOARname, c.Listener, c.Masters, c.IPSources, c.Templates, hostSpec)
 }
 
 // Tries each master and looks for the leader
@@ -156,17 +157,6 @@ func (rg *RecordGenerator) loadWrap(ip string, port string) (state.State, error)
 	return sj, err
 }
 
-// BUG: The probability of hashing collisions is too high with only 17 bits.
-// NOTE: Using a numerical base as high as valid characters in DNS names would
-// reduce the resulting length without risking more collisions.
-func hashString(s string) string {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(s))
-	sum := h.Sum32()
-	lower, upper := uint16(sum), uint16(sum>>16)
-	return strconv.FormatUint(uint64(lower+upper), 10)
-}
-
 // attempt to translate the hostname into an IPv4 address. logs an error if IP
 // lookup fails. if an IP address cannot be found, returns the same hostname
 // that was given. upon success returns the IP address as a string.
@@ -183,8 +173,30 @@ func hostToIP4(hostname string) (string, bool) {
 	return ip.String(), true
 }
 
+func compileNonCanonicalTemplates(ts []tmpl.Template, spec labels.Func) []*tmpl.Compiled {
+	compiled := make([]*tmpl.Compiled, 0, len(ts))
+	for _, t := range ts {
+		c, err := t.Compile(spec)
+		if err != nil {
+			logging.Error.Println(err)
+			continue
+		}
+		compiled = append(compiled, c)
+	}
+	return compiled
+}
+
+func compileEssentialTemplates(t tmpl.Template, spec labels.Func) *tmpl.Compiled {
+	compiled, err := t.Compile(spec)
+	if err != nil {
+		logging.Error.Fatalf("cannot compile invalid template %q: %v", t, err)
+	}
+	return compiled
+}
+
 // InsertState transforms a StateJSON into RecordGenerator RRs
-func (rg *RecordGenerator) InsertState(sj state.State, domain, ns, listener string, masters, ipSources []string, spec labels.Func) error {
+func (rg *RecordGenerator) InsertState(sj state.State, domain, ns, listener string,
+	masters, ipSources []string, templates []tmpl.Template, spec labels.Func) error {
 
 	rg.SlaveIPs = map[string]string{}
 	rg.SRVs = rrs{}
@@ -193,7 +205,7 @@ func (rg *RecordGenerator) InsertState(sj state.State, domain, ns, listener stri
 	rg.slaveRecords(sj, domain, spec)
 	rg.listenerRecord(listener, ns)
 	rg.masterRecord(domain, masters, sj.Leader)
-	rg.taskRecords(sj, domain, spec, ipSources)
+	rg.taskRecords(sj, domain, ipSources, templates, spec)
 
 	return nil
 }
@@ -343,76 +355,143 @@ func (rg *RecordGenerator) listenerRecord(listener string, ns string) {
 	}
 }
 
-func (rg *RecordGenerator) taskRecords(sj state.State, domain string, spec labels.Func, ipSources []string) {
+// NewContext creates a template Context for a given task and a label spec.
+func newNameContext(task *state.Task, framework string, spec labels.Func) tmpl.Context {
+	context := tmpl.Context{
+		"framework":      framework,
+		"slave-id-short": slaveIDTail(task.SlaveID),
+		"slave-id":       task.SlaveID,
+		"task-id":        task.ID,
+		"task-id-hash":   hashString(task.ID),
+		"name":           specEachLabel(task.Name, spec),
+	}
+
+	if task.HasDiscoveryInfo() {
+		possiblySet := func(key string, value string) {
+			if value != "" {
+				context[key] = specEachLabel(value, spec)
+			}
+		}
+		possiblySet("name", task.DiscoveryInfo.Name)
+		possiblySet("version", task.DiscoveryInfo.Version)
+		possiblySet("location", task.DiscoveryInfo.Location)
+		possiblySet("environment", task.DiscoveryInfo.Environment)
+
+		for _, label := range task.DiscoveryInfo.Labels.Labels {
+			context["label:"+label.Key] = specEachLabel(label.Value, spec)
+		}
+	}
+
+	return context
+}
+
+func newHostContext(task *state.Task, nameCtx tmpl.Context, domain string, ipSources []string, canonicalTmpl *tmpl.Compiled) (tmpl.Context, error) {
+	ctx := tmpl.Context{
+		"slave-ip": task.SlaveIP,
+		"task-ip":  task.IP(ipSources...),
+	}
+
+	canonical, err := canonicalTmpl.Execute(nameCtx)
+	if err != nil {
+		return nil, fmt.Errorf("error creating the canonical host name for task %v: %v", task, err)
+	}
+
+	tail := "." + domain + "."
+	ctx["canonical"] = canonical + tail
+	ctx["slave-canonical"] = canonical + ".slave" + tail
+
+	return ctx, nil
+}
+
+type recordTemplate struct {
+	tmpls  []*tmpl.Compiled
+	domain string
+	host   string
+}
+
+func (rg *RecordGenerator) addTaskRecords(tmpl recordTemplate, nameCtx, hostCtx tmpl.Context, hostPostfix, kind string) {
+	host := hostCtx[tmpl.host]
+	if host == "" {
+		return
+	}
+	for _, t := range tmpl.tmpls {
+		name, err := t.Execute(nameCtx)
+		if err != nil {
+			continue // this error is totally normal when variables are not defined. Don't print anything.
+		}
+		rg.insertRR(name+"."+tmpl.domain+".", host+hostPostfix, kind)
+	}
+}
+
+func (rg *RecordGenerator) taskRecords(sj state.State, domain string, ipSources []string, templates []tmpl.Template, spec labels.Func,
+	) {
+
+	// pre-compile the name templates
+	compiledTmpl := compileNonCanonicalTemplates(templates, spec)
+	canonicalTmpl := compileEssentialTemplates("{name}-{task-id-hash}-{slave-id-short}.{framework}", spec)
+	tcpRFC2782Tmpl := compileEssentialTemplates("_{name}._tcp.{framework}", spec)
+	udpRFC2782Tmpl := compileEssentialTemplates("_{name}._udp.{framework}", spec)
+	diTmpl := compileEssentialTemplates("_{name}._{port-protocol}.{framework}", spec)
+
+	// records to create
+	aTmpls := []recordTemplate{
+		{append(compiledTmpl, canonicalTmpl), domain, "task-ip"},
+		{append(compiledTmpl, canonicalTmpl), "slave." + domain, "slave-ip"},
+	}
+
+	srvTaskTmpl := []recordTemplate{
+		{[]*tmpl.Compiled{tcpRFC2782Tmpl, udpRFC2782Tmpl}, "slave." + domain, "slave-canonical"},
+	}
+	srvNoDiscoveryInfoTmpls := []recordTemplate{
+		{[]*tmpl.Compiled{tcpRFC2782Tmpl, udpRFC2782Tmpl}, domain, "canonical"},
+	}
+	srvDiscoveryInfoTmpls := []recordTemplate{
+		{[]*tmpl.Compiled{diTmpl}, domain, "canonical"},
+	}
+
 	for _, f := range sj.Frameworks {
 		fname := labels.DomainFrag(f.Name, labels.Sep, spec)
-
-		// insert taks records
-		tail := "." + domain + "."
 		for _, task := range f.Tasks {
 			var ok bool
 			task.SlaveIP, ok = rg.SlaveIPs[task.SlaveID]
-
-			// skip not running or not discoverable tasks
 			if !ok || (task.State != "TASK_RUNNING") {
 				continue
 			}
 
-			// define context
-			ctx := struct{ taskName, taskID, slaveID, taskIP, slaveIP string }{
-				spec(task.Name),
-				hashString(task.ID),
-				slaveIDTail(task.SlaveID),
-				task.IP(ipSources...),
-				task.SlaveIP,
-			}
-
-			// use DiscoveryInfo name if defined instead of task name
-			if task.HasDiscoveryInfo() {
-				ctx.taskName = task.DiscoveryInfo.Name
-			}
-
-			// insert canonical A records
-			canonical := ctx.taskName + "-" + ctx.taskID + "-" + ctx.slaveID + "." + fname
-			arec := ctx.taskName + "." + fname
-
-			rg.insertRR(arec+tail, ctx.taskIP, "A")
-			rg.insertRR(canonical+tail, ctx.taskIP, "A")
-
-			rg.insertRR(arec+".slave"+tail, ctx.slaveIP, "A")
-			rg.insertRR(canonical+".slave"+tail, ctx.slaveIP, "A")
-
-			// Add RFC 2782 SRV records
-			slaveHost := canonical + ".slave" + tail
-			tcpName := "_" + ctx.taskName + "._tcp." + fname
-			udpName := "_" + ctx.taskName + "._udp." + fname
-			for _, port := range task.Ports() {
-				slaveTarget := slaveHost + ":" + port
-
-				if !task.HasDiscoveryInfo() {
-					rg.insertRR(tcpName+tail, slaveTarget, "SRV")
-					rg.insertRR(udpName+tail, slaveTarget, "SRV")
-				}
-
-				rg.insertRR(tcpName+".slave"+tail, slaveTarget, "SRV")
-				rg.insertRR(udpName+".slave"+tail, slaveTarget, "SRV")
-			}
-
-			if !task.HasDiscoveryInfo() {
+			nameCtx := newNameContext(&task, fname, spec)
+			hostCtx, err := newHostContext(&task, nameCtx, domain, ipSources, canonicalTmpl)
+			if err != nil {
+				logging.Error.Println(err)
 				continue
 			}
 
-			for _, port := range task.DiscoveryInfo.Ports.DiscoveryPorts {
-				target := canonical + tail + ":" + strconv.Itoa(port.Number)
+			// create A records
+			for _, t := range aTmpls {
+				rg.addTaskRecords(t, nameCtx, hostCtx, "", "A")
+			}
 
-				// use protocol if defined, fallback to tcp+udp
-				proto := spec(port.Protocol)
-				if proto != "" {
-					name := "_" + ctx.taskName + "._" + proto + "." + fname
-					rg.insertRR(name+tail, target, "SRV")
-				} else {
-					rg.insertRR(tcpName+tail, target, "SRV")
-					rg.insertRR(udpName+tail, target, "SRV")
+			// create task SRV records created with and without DiscoveryInfo
+			for _, port := range task.Ports() {
+				for _, t := range srvTaskTmpl {
+					rg.addTaskRecords(t, nameCtx, hostCtx, ":"+port, "SRV")
+				}
+			}
+
+			if task.HasDiscoveryInfo() {
+				// create DiscoveryInfo SRV records
+				for _, port := range task.DiscoveryInfo.Ports.DiscoveryPorts {
+					nameCtx["port-protocol"] = spec(port.Protocol)
+					nameCtx["port-name"] = spec(port.Name)
+					for _, t := range srvDiscoveryInfoTmpls {
+						rg.addTaskRecords(t, nameCtx, hostCtx, ":"+strconv.Itoa(port.Number), "SRV")
+					}
+				}
+			} else {
+				// create task SRV records created only without DiscoveryInfo
+				for _, port := range task.Ports() {
+					for _, t := range srvNoDiscoveryInfoTmpls {
+						rg.addTaskRecords(t, nameCtx, hostCtx, ":"+port, "SRV")
+					}
 				}
 			}
 		}
@@ -511,12 +590,6 @@ func leaderIP(leader string) string {
 	return strings.Split(pair, ":")[0]
 }
 
-// return the slave number from a Mesos slave id
-func slaveIDTail(slaveID string) string {
-	fields := strings.Split(slaveID, "-")
-	return strings.ToLower(fields[len(fields)-1])
-}
-
 // should be able to accept
 // ip:port
 // zk://host1:port1,host2:port2,.../path
@@ -528,4 +601,30 @@ func getProto(pair string) (string, string, error) {
 		return "", "", fmt.Errorf("unable to parse proto from %q", pair)
 	}
 	return h[0], h[1], nil
+}
+
+func specEachLabel(s string, spec labels.Func) string {
+	labels := strings.Split(s, ".")
+	specLabels := make([]string, 0, len(labels))
+	for _, l := range labels {
+		specLabels = append(specLabels, spec(l))
+	}
+	return strings.Join(specLabels, ".")
+}
+
+// return the slave number from a Mesos slave id
+func slaveIDTail(slaveID string) string {
+	fields := strings.Split(slaveID, "-")
+	return strings.ToLower(fields[len(fields)-1])
+}
+
+// BUG: The probability of hashing collisions is too high with only 17 bits.
+// NOTE: Using a numerical base as high as valid characters in DNS names would
+// reduce the resulting length without risking more collisions.
+func hashString(s string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(s))
+	sum := h.Sum32()
+	lower, upper := uint16(sum), uint16(sum>>16)
+	return strconv.FormatUint(uint64(lower+upper), 10)
 }

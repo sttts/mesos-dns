@@ -150,6 +150,7 @@ func (res *Resolver) LaunchZK(initialDetectionTimeout time.Duration) (<-chan str
 // Reload triggers a new state load from the configured Mesos master.
 func (res *Resolver) Reload() {
 	t := records.RecordGenerator{}
+
 	// Being very conservative
 	res.leaderLock.RLock()
 	currentLeader := res.leader

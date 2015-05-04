@@ -18,6 +18,7 @@ import (
 	"github.com/mesosphere/mesos-dns/records"
 	"github.com/mesosphere/mesos-dns/records/labels"
 	"github.com/mesosphere/mesos-dns/records/state"
+	"github.com/mesosphere/mesos-dns/records/tmpl"
 	"github.com/miekg/dns"
 )
 
@@ -142,13 +143,13 @@ func TestHandlers(t *testing.T) {
 				header(true, dns.RcodeSuccess),
 				answers(
 					srv(rrheader("_car-store._udp.marathon.mesos.", dns.TypeSRV, 60),
-						"car-store-50548-0.marathon.slave.mesos.", 31365, 0, 0),
+						"car-store-50548-0.marathon.mesos.", 31365, 0, 0),
 					srv(rrheader("_car-store._udp.marathon.mesos.", dns.TypeSRV, 60),
-						"car-store-50548-0.marathon.slave.mesos.", 31364, 0, 0)),
+						"car-store-50548-0.marathon.mesos.", 31364, 0, 0)),
 				extras(
-					a(rrheader("car-store-50548-0.marathon.slave.mesos.", dns.TypeA, 60),
+					a(rrheader("car-store-50548-0.marathon.mesos.", dns.TypeA, 60),
 						net.ParseIP("1.2.3.11")),
-					a(rrheader("car-store-50548-0.marathon.slave.mesos.", dns.TypeA, 60),
+					a(rrheader("car-store-50548-0.marathon.mesos.", dns.TypeA, 60),
 						net.ParseIP("1.2.3.11")))),
 		},
 		{
@@ -443,7 +444,7 @@ func fakeDNS(t *testing.T) *Resolver {
 	}
 
 	spec := labels.RFC952
-	err = res.rs.InsertState(sj, "mesos", "mesos-dns.mesos.", "127.0.0.1", res.config.Masters, res.config.IPSources, spec)
+	err = res.rs.InsertState(sj, "mesos", "mesos-dns.mesos.", "127.0.0.1", res.config.Masters, res.config.IPSources, tmpl.DefaultTemplates(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -29,7 +29,8 @@ The configuration file should include the following fields:
   "SOARetry":   600,
   "SOAExpire":  86400,
   "SOAMinttl": 60,
-  "IPSources": ["mesos", "host"]
+  "IPSources": ["mesos", "host"],
+  "templates": ["{name}.{framework}"]
 }
 ```
 
@@ -74,3 +75,5 @@ It is sufficient to specify just one of the `zk` or `masters` field. If both are
 `recurseon` controls if the DNS replies for names in the Mesos domain will indicate that recursion is available. The default value is `true`. 
 
 `enforceRFC952` will enforce an older, more strict set of rules for DNS labels. For details, see the [RFC-952](https://tools.ietf.org/html/rfc952). The default value is `false`.
+
+`templates` is a list of domain name templates used to create records. The default value is `["{name}.{framework}"]`, compare the [naming documentation](naming.md).

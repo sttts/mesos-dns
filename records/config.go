@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/mesosphere/mesos-dns/logging"
+	"github.com/mesosphere/mesos-dns/records/tmpl"
+
 	"github.com/miekg/dns"
 )
 
@@ -76,6 +78,9 @@ type Config struct {
 
 	// IPSources is the prioritized list of task IP sources
 	IPSources []string // e.g. ["host", "docker", "mesos", "rkt"]
+
+	// Templates are text/template style templates for A-records of Mesos tasks
+	Templates []tmpl.Template
 }
 
 // NewConfig return the default config of the resolver
@@ -100,6 +105,7 @@ func NewConfig() Config {
 		ExternalOn:     true,
 		RecurseOn:      true,
 		IPSources:      []string{"mesos", "host"},
+		Templates:		tmpl.DefaultTemplates(),
 	}
 }
 
@@ -166,6 +172,7 @@ func SetConfig(cjson string) Config {
 	logging.Verbose.Println("   - ConfigFile: ", c.File)
 	logging.Verbose.Println("   - EnforceRFC952: ", c.EnforceRFC952)
 	logging.Verbose.Println("   - IPSources: ", c.IPSources)
+	logging.Verbose.Printf("   - Templates: %+v", c.Templates)
 
 	return *c
 }
