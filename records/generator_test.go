@@ -2,7 +2,6 @@ package records
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"reflect"
 	"testing"
@@ -237,77 +236,47 @@ func TestInsertState(t *testing.T) {
 
 	b, err := ioutil.ReadFile("../factories/fake.json")
 	if err != nil {
-		t.Fatal("missing test data")
-	}
-
-	err = json.Unmarshal(b, &sj)
-	if err != nil {
+		t.Fatal(err)
+	} else if err = json.Unmarshal(b, &sj); err != nil {
 		t.Fatal(err)
 	}
-	sj.Leader = "master@144.76.157.37:5050"
 
+	sj.Leader = "master@144.76.157.37:5050"
 	masters := []string{"144.76.157.37:5050"}
 	spec := labels.ForRFC952()
-	rg := &RecordGenerator{}
-	rg.InsertState(sj, "mesos", "mesos-dns.mesos.", "127.0.0.1", masters, spec)
 
-	type expectation struct {
-		domain string
-		num    uint
-		answer []string
-		reason string
-	}
-	expectedARecords := []expectation{
-		{domain: "liquor-store.marathon.mesos.", num: 2, answer: []string{"1.2.3.11", "1.2.3.12"}},
-		{domain: "_container.liquor-store.marathon.mesos.", num: 2, answer: []string{"10.3.0.1", "10.3.0.2"}},
-		{domain: "_container.reviewbot.marathon.mesos.", num: 1, answer: []string{"10.5.0.7"}},
-		{domain: "poseidon.marathon.mesos.", reason: "task was not running"},
-		{domain: "_container.poseidon.marathon.mesos.", reason: "task was not running"},
-		{domain: "master.mesos.", num: 1},
-		{domain: "master0.mesos.", num: 1},
-		{domain: "leader.mesos.", num: 1},
-		{domain: "some-box.chronoswithaspaceandmixe.mesos.", num: 1}, // ensure we translate the framework name as well
-	}
-	expectedSRVRecords := []expectation{
-		{domain: "_poseidon._tcp.marathon.mesos.", reason: "task was not running"},
-		{domain: "_leader._tcp.mesos.", num: 1},
-		{domain: "_liquor-store._tcp.marathon.mesos.", num: 1},
-		{domain: "_liquor-store.marathon.mesos."},
+	var rg RecordGenerator
+	if err := rg.InsertState(sj, "mesos", "mesos-dns.mesos.", "127.0.0.1", masters, spec); err != nil {
+		t.Fatal(err)
 	}
 
-	checkExpectations := func(expectations []expectation, records rrs, recordName string) {
-		for _, e := range expectations {
-			because := ""
-			if e.reason != "" {
-				because = fmt.Sprintf(", because %s", e.reason)
-			}
-
-			rrs, ok := records[e.domain]
-			if e.num == 0 && ok {
-				s := ""
-				if len(rrs) != 1 {
-					s = "s"
-				}
-
-				t.Errorf(`didn't expect %d %s record%s for "%s"%s. Got %v, expected none.`, len(rrs), recordName, s, e.domain, because, rrs)
-			} else if e.num != 0 && !ok {
-				s := ""
-				if e.num != 1 {
-					s = "s"
-				}
-
-				want := ""
-				if len(e.answer) > 0 {
-					want = fmt.Sprintf(", expected %v", e.answer)
-				}
-
-				t.Errorf(`expected %d %s record%s for "%s"%s. Got %v%s.`, e.num, recordName, s, e.domain, because, rrs, want)
-			}
+	for i, tt := range []struct {
+		rrs
+		kind, name string
+		want       []string
+	}{
+		{rg.As, "A", "liquor-store.marathon.mesos.", []string{"1.2.3.11", "1.2.3.12"}},
+		{rg.As, "A", "_container.liquor-store.marathon.mesos.", []string{"10.3.0.1", "10.3.0.2"}},
+		{rg.As, "A", "_container.reviewbot.marathon.mesos.", []string{"10.5.0.7"}},
+		{rg.As, "A", "poseidon.marathon.mesos.", nil},
+		{rg.As, "A", "_container.poseidon.marathon.mesos.", nil},
+		{rg.As, "A", "master.mesos.", []string{"144.76.157.37"}},
+		{rg.As, "A", "master0.mesos.", []string{"144.76.157.37"}},
+		{rg.As, "A", "leader.mesos.", []string{"144.76.157.37"}},
+		{rg.As, "A", "some-box.chronoswithaspaceandmixe.mesos.", []string{"1.2.3.11"}}, // ensure we translate the framework name as well
+		{rg.SRVs, "SRV", "_poseidon._tcp.marathon.mesos.", nil},
+		{rg.SRVs, "SRV", "_leader._tcp.mesos.", []string{"leader.mesos.:5050"}},
+		{rg.SRVs, "SRV", "_liquor-store._tcp.marathon.mesos.", []string{
+			"liquor-store-17700-0.marathon.mesos.:31354",
+			"liquor-store-17700-0.marathon.mesos.:31355",
+			"liquor-store-7581-1.marathon.mesos.:31737",
+		}},
+		{rg.SRVs, "SRV", "_liquor-store.marathon.mesos.", nil},
+	} {
+		if got := tt.rrs[tt.name]; !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("test #%d: %s record for %q: got: %q, want: %q", i, tt.kind, tt.name, got, tt.want)
 		}
 	}
-
-	checkExpectations(expectedARecords, rg.As, "A")
-	checkExpectations(expectedSRVRecords, rg.SRVs, "SRV")
 }
 
 // ensure we only generate one A record for each host
