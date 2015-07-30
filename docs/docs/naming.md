@@ -9,8 +9,10 @@ Mesos-DNS defines a DNS domain for Mesos tasks (default `.mesos`, see [instructi
 ## A Records
 
 An A record associates a hostname to an IP address. For task `task` launched by framework `framework`, Mesos-DNS generates an A record for hostname `task.framework.domain` that provides
+
 - either the IP address of the specific slave running the task
 - or the IP address of the task container itself if Mesos provides this (in the task status labels).
+
 For example, other Mesos tasks can discover the IP address for service `search` launched by the `marathon` framework with a lookup for `search.marathon.mesos`:
 
 ``` console
@@ -48,8 +50,10 @@ search.marathon.mesos.      60  IN  A   10.0.4.1
 ```
 
 *Note*: Container IPs must be provided by the executor of a task in one of the following task status labels:
+
 - `Docker.NetworkSettings.IPAddress`
 - `MesosContainerizer.NetworkSettings.IPAddress`.
+
 In general support for these will not be available before Mesos 0.24.
 
 ## SRV Records
