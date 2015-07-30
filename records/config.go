@@ -72,6 +72,9 @@ type Config struct {
 
 	// EnforceRFC952 will enforce an older, more strict set of rules for DNS labels
 	EnforceRFC952 bool
+
+	// Enable serving container IP if the corresponding task status labels are found
+	ContainerIPsOn bool
 }
 
 // SetConfig instantiates a Config struct read in from config.json
@@ -95,6 +98,7 @@ func SetConfig(cjson string) (c Config) {
 		HTTPOn:         true,
 		ExternalOn:     true,
 		RecurseOn:      true,
+		ContainerIPsOn: true,
 	}
 
 	// read configuration file
@@ -179,6 +183,8 @@ func SetConfig(cjson string) (c Config) {
 	logging.Verbose.Println("   - HttpOn: ", c.HTTPOn)
 	logging.Verbose.Println("   - ConfigFile: ", c.File)
 	logging.Verbose.Println("   - EnforceRFC952: ", c.EnforceRFC952)
+	logging.Verbose.Println("   - EnforceRFC952: ", c.EnforceRFC952)
+	logging.Verbose.Println("   - ContainerIPsOn: ", c.ContainerIPsOn)
 
 	return c
 }

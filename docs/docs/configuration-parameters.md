@@ -28,7 +28,8 @@ The configuration file should include the following fields:
   "SOARefresh": 60,
   "SOARetry":   600,
   "SOAExpire":  86400,
-  "SOAMinttl": 60
+  "SOAMinttl": 60,
+  "ContainerIPsOn": true
 }
 ```
 
@@ -73,3 +74,6 @@ It is sufficient to specify just one of the `zk` or `masters` field. If both are
 `recurseon` controls if the DNS replies for names in the Mesos domain will indicate that recursion is available. The default value is `true`. 
 
 `enforceRFC952` will enforce an older, more strict set of rules for DNS labels. For details, see the [RFC-952](https://tools.ietf.org/html/rfc952). The default value is `false`.
+
+`ContainerIPsOn` controls whether A records with the container IP are created instead of the slave IP if one of task status labels `Docker.NetworkSettings.IPAddress` or `MesosContainerizer.NetworkSettings.IPAddress` is set by Mesos or the executor.
+The default value is `true`.

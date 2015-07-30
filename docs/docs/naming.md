@@ -8,7 +8,10 @@ Mesos-DNS defines a DNS domain for Mesos tasks (default `.mesos`, see [instructi
 
 ## A Records
 
-An A record associates a hostname to an IP address. For task `task` launched by framework `framework`, Mesos-DNS generates an A record for hostname `task.framework.domain` that provides the IP address of the specific slave running the task. For example, other Mesos tasks can discover the IP address for service `search` launched by the `marathon` framework with a lookup for `search.marathon.mesos`:
+An A record associates a hostname to an IP address. For task `task` launched by framework `framework`, Mesos-DNS generates an A record for hostname `task.framework.domain` that provides
+- either the IP address of the specific slave running the task
+- or the IP address of the task container itself if Mesos provides this (in the task status labels).
+For example, other Mesos tasks can discover the IP address for service `search` launched by the `marathon` framework with a lookup for `search.marathon.mesos`:
 
 ``` console
 $ dig search.marathon.mesos
@@ -25,25 +28,23 @@ $ dig search.marathon.mesos
 ;; ANSWER SECTION:
 search.marathon.mesos.		60	IN	A	10.9.87.94
 ```
- 
-## Container IP A Records
 
-The A records above point to the host IP of a given service. If container IPs are supported by Mesos and the executor of a test, Mesos-DNS will create another A record for each of the A records above by prefixing it with `_container` and returning the container IP:
+If Mesos is setup to provide a container IP `10.0.4.1` for the task `search.marathon.mesos` the lookup would give:
 
 ``` console
-$ dig _container.search.marathon.mesos
+$ dig search.marathon.mesos
 
-; <<>> DiG 9.8.4-rpz2+rl005.12-P1 <<>> _container.search.marathon.mesos
+; <<>> DiG 9.8.4-rpz2+rl005.12-P1 <<>> search.marathon.mesos
 ;; global options: +cmd
 ;; Got answer:
 ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 24471
 ;; flags: qr aa rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 1, ADDITIONAL: 0
 
 ;; QUESTION SECTION:
-;_container.search.marathon.mesos.         IN  A
+;search.marathon.mesos.         IN  A
 
 ;; ANSWER SECTION:
-_container.search.marathon.mesos.      60  IN  A   10.0.3.72
+search.marathon.mesos.      60  IN  A   10.0.4.1
 ```
 
 *Note*: Container IPs must be provided by the executor of a task in one of the following task status labels:
@@ -71,7 +72,7 @@ $ dig _search._tcp.marathon.mesos SRV
 _search._tcp.marathon.mesos.	60 IN SRV 0 0 31302 10.254.132.41.
 ```
 
-SRV records are generated only for tasks that have been allocated a specific port through Mesos. 
+*Note*: SRV records are generated only for tasks that have been allocated a specific port through Mesos and that have no container IP assigned.
 
 ## Other Records
 

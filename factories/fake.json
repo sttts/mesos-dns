@@ -174,7 +174,7 @@
                     "executor_id": "",
                     "framework_id": "20140703-014514-3041283216-5050-5348-0000",
                     "id": "poseidon.bc4e3796-2d7a-11e4-b8df-d43d7edb01cd",
-                    "name": "poseidon.bc4e3796-2d7a-11e4-b8df-d43d7edb01cd",
+                    "name": "poseidon",
                     "resources": {
                         "cpus": 1,
                         "disk": 0,
@@ -206,6 +206,46 @@
                         "disk": 0,
                         "mem": 1024,
                         "ports": "[31354-31354, 31355-31355]"
+                    },
+                    "slave_id": "20140803-125133-3041283216-5050-2410-0",
+                    "state": "TASK_RUNNING",
+                    "statuses": [
+                        {
+                            "state": "TASK_RUNNING",
+                            "timestamp": 1413572371.04321
+                        }
+                    ]
+                },
+                {
+                    "executor_id": "",
+                    "framework_id": "20140703-014514-3041283216-5050-5348-0000",
+                    "id": "liquor-store.b71166c1-562f-11e4-a088-c20493233aa5",
+                    "name": "liquor-store",
+                    "resources": {
+                        "cpus": 1,
+                        "disk": 0,
+                        "mem": 1024,
+                        "ports": "[31737-31737]"
+                    },
+                    "slave_id": "20140827-000744-3041283216-5050-2116-1",
+                    "state": "TASK_RUNNING",
+                    "statuses": [
+                        {
+                            "state": "TASK_RUNNING",
+                            "timestamp": 1413572383.04559
+                        }
+                    ]
+                },
+                {
+                    "executor_id": "",
+                    "framework_id": "20140703-014514-3041283216-5050-5348-0000",
+                    "id": "car-shop.5ae07148-36af-11e5-8a54-0242c0a8215c",
+                    "name": "car-shop",
+                    "resources": {
+                        "cpus": 1,
+                        "disk": 0,
+                        "mem": 1024,
+                        "ports": "[]"
                     },
                     "slave_id": "20140803-125133-3041283216-5050-2410-0",
                     "state": "TASK_RUNNING",
@@ -261,13 +301,13 @@
                 {
                     "executor_id": "",
                     "framework_id": "20140703-014514-3041283216-5050-5348-0000",
-                    "id": "liquor-store.b71166c1-562f-11e4-a088-c20493233aa5",
-                    "name": "liquor-store",
+                    "id": "car-shop.5aeffeb6-36af-11e5-8a54-0242c0a8215c",
+                    "name": "car-shop",
                     "resources": {
                         "cpus": 1,
                         "disk": 0,
                         "mem": 1024,
-                        "ports": "[31737-31737]"
+                        "ports": "[]"
                     },
                     "slave_id": "20140827-000744-3041283216-5050-2116-1",
                     "state": "TASK_RUNNING",
@@ -318,6 +358,32 @@
                         "disk": 0,
                         "mem": 128,
                         "ports": "[31744-31744]"
+                    },
+                    "slave_id": "20140827-000744-3041283216-5050-2116-1",
+                    "state": "TASK_RUNNING",
+                    "statuses": [
+                        {
+                            "state": "TASK_RUNNING",
+                            "timestamp": 1414800227.3456,
+                            "labels": [
+                                {
+                                    "key": "foo",
+                                    "value": "bar"
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "executor_id": "",
+                    "framework_id": "20140703-014514-3041283216-5050-5348-0000",
+                    "id": "proxy.12343434-615a-11e4-a088-c20493233aa5",
+                    "name": "proxy",
+                    "resources": {
+                        "cpus": 0.1,
+                        "disk": 0,
+                        "mem": 128,
+                        "ports": "[]"
                     },
                     "slave_id": "20140827-000744-3041283216-5050-2116-1",
                     "state": "TASK_RUNNING",
