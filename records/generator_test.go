@@ -246,7 +246,7 @@ func TestInsertState(t *testing.T) {
 	spec := labels.ForRFC952()
 
 	var rg RecordGenerator
-	if err := rg.InsertState(sj, "mesos", "mesos-dns.mesos.", "127.0.0.1", masters, spec); err != nil {
+	if err := rg.InsertState(sj, "mesos", "mesos-dns.mesos.", "127.0.0.1", masters, spec, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -256,15 +256,16 @@ func TestInsertState(t *testing.T) {
 		want       []string
 	}{
 		{rg.As, "A", "liquor-store.marathon.mesos.", []string{"1.2.3.11", "1.2.3.12"}},
-		{rg.As, "A", "_container.liquor-store.marathon.mesos.", []string{"10.3.0.1", "10.3.0.2"}},
-		{rg.As, "A", "_container.reviewbot.marathon.mesos.", []string{"10.5.0.7"}},
-		{rg.As, "A", "poseidon.marathon.mesos.", nil},
-		{rg.As, "A", "_container.poseidon.marathon.mesos.", nil},
+		{rg.As, "A", "car-shop.marathon.mesos.", []string{"10.3.0.1", "10.3.0.2"}}, // with container IP
+		{rg.As, "A", "proxy.marathon.mesos.", []string{"10.5.0.7"}}, // with container IP
+		{rg.As, "A", "poseidon.marathon.mesos.", nil}, // b/c it's killed
 		{rg.As, "A", "master.mesos.", []string{"144.76.157.37"}},
 		{rg.As, "A", "master0.mesos.", []string{"144.76.157.37"}},
 		{rg.As, "A", "leader.mesos.", []string{"144.76.157.37"}},
 		{rg.As, "A", "some-box.chronoswithaspaceandmixe.mesos.", []string{"1.2.3.11"}}, // ensure we translate the framework name as well
-		{rg.SRVs, "SRV", "_poseidon._tcp.marathon.mesos.", nil},
+		{rg.SRVs, "SRV", "_car-shop._tcp.marathon.mesos.", nil}, // no SRV b/c of container IP
+		{rg.SRVs, "SRV", "_proxy._tcp.marathon.mesos.", nil}, // no SRV b/c of container IP
+		{rg.SRVs, "SRV", "_poseidon._tcp.marathon.mesos.", nil}, // b/c it's killed
 		{rg.SRVs, "SRV", "_leader._tcp.mesos.", []string{"leader.mesos.:5050"}},
 		{rg.SRVs, "SRV", "_liquor-store._tcp.marathon.mesos.", []string{
 			"liquor-store-17700-0.marathon.mesos.:31354",

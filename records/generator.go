@@ -100,7 +100,7 @@ func (rg *RecordGenerator) ParseState(leader string, c Config) error {
 		hostSpec = labels.ForRFC952()
 	}
 
-	return rg.InsertState(sj, c.Domain, c.SOARname, c.Listener, c.Masters, hostSpec)
+	return rg.InsertState(sj, c.Domain, c.SOARname, c.Listener, c.Masters, hostSpec, c.ContainerIPsOn)
 }
 
 // Tries each master and looks for the leader
@@ -270,7 +270,7 @@ func (t *Task) containerIP() string {
 
 // InsertState transforms a StateJSON into RecordGenerator RRs
 func (rg *RecordGenerator) InsertState(sj StateJSON, domain string, ns string,
-	listener string, masters []string, spec labels.HostNameSpec) error {
+	listener string, masters []string, spec labels.HostNameSpec, containerIPsOn bool) error {
 
 	// creates a map with slave IP addresses (IPv4)
 	rg.SlaveIPs = make(map[string]string)
@@ -296,27 +296,32 @@ func (rg *RecordGenerator) InsertState(sj StateJSON, domain string, ns string,
 			tag := hashString(task.ID)
 			tail := fname + "." + domain + "."
 
-			// A records for task and task-sid
 			arec := tname + "." + tail
-			rg.insertRR(arec, hostIP, "A")
 			trec := tname + "-" + tag + "-" + sid + "." + tail
-			rg.insertRR(trec, hostIP, "A")
 
-			// A records with container IP
-			if containerIP := task.containerIP(); containerIP != "" {
-				rg.insertRR("_container."+arec, containerIP, "A")
-				rg.insertRR("_container."+trec, containerIP, "A")
+			containerIP := ""
+			if containerIPsOn {
+				containerIP = task.containerIP()
 			}
+			if containerIP != "" {
+				// A records with container IP, no SRV records here
+				rg.insertRR(arec, containerIP, "A")
+				rg.insertRR(trec, containerIP, "A")
+			} else {
+				// A records for task and task-sid
+				rg.insertRR(arec, hostIP, "A")
+				rg.insertRR(trec, hostIP, "A")
 
-			// SRV records
-			if task.Resources.Ports != "" {
-				ports := yankPorts(task.Resources.Ports)
-				for _, port := range ports {
-					srvhost := trec + ":" + port
-					tcp := "_" + tname + "._tcp." + tail
-					udp := "_" + tname + "._udp." + tail
-					rg.insertRR(tcp, srvhost, "SRV")
-					rg.insertRR(udp, srvhost, "SRV")
+				// SRV records
+				if task.Resources.Ports != "" {
+					ports := yankPorts(task.Resources.Ports)
+					for _, port := range ports {
+						srvhost := trec + ":" + port
+						tcp := "_" + tname + "._tcp." + tail
+						udp := "_" + tname + "._udp." + tail
+						rg.insertRR(tcp, srvhost, "SRV")
+						rg.insertRR(udp, srvhost, "SRV")
+					}
 				}
 			}
 		}
